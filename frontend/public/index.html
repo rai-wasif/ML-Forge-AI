@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MLForge AI</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">MLForge AI</p>
+          <h1>Projects</h1>
+        </div>
+        <div class="status" id="statusText">Ready</div>
+      </header>
+
+      <section class="layout">
+        <aside class="panel project-panel">
+          <form class="project-form" id="projectForm">
+            <label for="projectName">Project name</label>
+            <input id="projectName" name="name" type="text" required placeholder="Titanic Survival Prediction" />
+
+            <label for="projectDescription">Description</label>
+            <textarea id="projectDescription" name="description" rows="3" placeholder="Binary Classification Problem"></textarea>
+
+            <button type="submit">+ New Project</button>
+          </form>
+
+          <div class="project-list" id="projectList"></div>
+        </aside>
+
+        <section class="workspace" id="workspace">
+          <div class="empty-state">
+            <h2>No project selected</h2>
+            <p>Create or open a project to begin.</p>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <template id="projectTemplate">
+      <article class="project-item">
+        <div>
+          <h3></h3>
+          <p></p>
+        </div>
+        <button type="button" class="open-project">Open</button>
+      </article>
+    </template>
+
+    <template id="datasetTemplate">
+      <article class="dataset-item">
+        <header>
+          <div>
+            <h3></h3>
+            <p></p>
+          </div>
+          <span class="file-type"></span>
+        </header>
+        <dl class="metrics">
+          <div>
+            <dt>Rows</dt>
+            <dd data-field="rows"></dd>
+          </div>
+          <div>
+            <dt>Columns</dt>
+            <dd data-field="columns"></dd>
+          </div>
+          <div>
+            <dt>Missing</dt>
+            <dd data-field="missing"></dd>
+          </div>
+          <div>
+            <dt>Duplicates</dt>
+            <dd data-field="duplicates"></dd>
+          </div>
+          <div>
+            <dt>Size</dt>
+            <dd data-field="size"></dd>
+          </div>
+          <div>
+            <dt>Memory</dt>
+            <dd data-field="memory"></dd>
+          </div>
+        </dl>
+      </article>
+    </template>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

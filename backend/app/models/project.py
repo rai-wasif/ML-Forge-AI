@@ -20,5 +20,11 @@ class Project(Base):
         nullable=False,
     )
 
-    datasets: Mapped[list["Dataset"]] = relationship(back_populates="project")
-    activities: Mapped[list["Activity"]] = relationship(back_populates="project")
+    datasets: Mapped[list["Dataset"]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+    activities: Mapped[list["Activity"]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
