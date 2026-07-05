@@ -235,11 +235,30 @@ h1 {
   background: #ffffff;
 }
 
+.experiment-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfb;
+}
+
 .assistant-panel h3,
 .assistant-panel p,
 .knowledge-panel h3,
-.knowledge-panel p {
+.knowledge-panel p,
+.experiment-panel h3,
+.experiment-panel p {
   margin-bottom: 4px;
+}
+
+.experiment-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .assistant-form,
@@ -475,6 +494,11 @@ h1 {
 
   .knowledge-actions {
     grid-template-columns: 1fr;
+  }
+
+  .experiment-header {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .upload-form input {

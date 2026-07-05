@@ -13,11 +13,13 @@ class Settings:
     database_url: str
     groq_api_key: str
     google_api_key: str
+    mlflow_tracking_uri: str
 
     def __init__(self) -> None:
         self.database_url = os.getenv("DATABASE_URL", "")
         self.groq_api_key = os.getenv("GROQ_API_KEY", "")
         self.google_api_key = os.getenv("GOOGLE_API_KEY", "")
+        self.mlflow_tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
 
 
 @lru_cache

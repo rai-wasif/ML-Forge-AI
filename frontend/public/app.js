@@ -10,6 +10,8 @@ const state = {
   trainingReports: {},
   agentResponse: null,
   knowledgeResponse: null,
+  experiments: [],
+  experimentComparison: null,
 };
 
 const projectForm = document.querySelector("#projectForm");
@@ -77,6 +79,7 @@ async function openProject(projectId) {
   await loadCleaningReports();
   await loadFeatureReports();
   await loadTrainingReports();
+  await loadExperiments();
   renderWorkspace();
 }
 
@@ -122,6 +125,15 @@ async function loadTrainingReports() {
   );
 
   state.trainingReports = Object.fromEntries(entries.filter((entry) => entry[1]));
+}
+
+async function loadExperiments() {
+  if (!state.selectedProject) {
+    state.experiments = [];
+    return;
+  }
+
+  state.experiments = await request(`/training/projects/${state.selectedProject.id}/experiments`);
 }
 
 function renderWorkspace() {
@@ -181,6 +193,9 @@ function renderWorkspace() {
         ${state.knowledgeResponse ? renderKnowledgeResponse(state.knowledgeResponse) : ""}
       </div>
     </section>
+    <section class="experiment-panel">
+      ${renderExperimentPanel()}
+    </section>
     <div class="dataset-list" id="datasetList"></div>
   `;
 
@@ -189,6 +204,7 @@ function renderWorkspace() {
   document.querySelector("#agentForm").addEventListener("submit", handleAgentPrompt);
   document.querySelector("#ragIndexForm").addEventListener("submit", handleRagIndex);
   document.querySelector("#ragQueryForm").addEventListener("submit", handleRagQuery);
+  document.querySelector("#compareExperiments").addEventListener("click", handleCompareExperiments);
 }
 
 function renderDatasets() {
@@ -266,6 +282,7 @@ async function handleUpload(event) {
     await loadCleaningReports();
     await loadFeatureReports();
     await loadTrainingReports();
+    await loadExperiments();
     renderWorkspace();
     setStatus("Dataset saved");
   } catch (error) {
@@ -302,6 +319,7 @@ async function handleAgentPrompt(event) {
     await loadCleaningReports();
     await loadFeatureReports();
     await loadTrainingReports();
+    await loadExperiments();
     renderWorkspace();
     setStatus("Crew complete");
   } catch (error) {
@@ -488,6 +506,7 @@ workspace.addEventListener("click", async (event) => {
     });
     button.textContent = "Evaluating... 100%";
     state.trainingReports[datasetId] = report;
+    await loadExperiments();
     renderWorkspace();
     setStatus("Training complete");
   } catch (error) {
@@ -496,6 +515,47 @@ workspace.addEventListener("click", async (event) => {
     setStatus(error.message, true);
   }
 });
+
+workspace.addEventListener("click", async (event) => {
+  const button = event.target.closest(".generate-final-report");
+  if (!button) {
+    return;
+  }
+
+  const reportId = button.dataset.reportId;
+
+  try {
+    button.disabled = true;
+    button.textContent = "Generating";
+    setStatus("Generating AI report");
+    await request(`/training/reports/${reportId}/final-report`, {
+      method: "POST",
+    });
+    await loadTrainingReports();
+    await loadExperiments();
+    renderWorkspace();
+    setStatus("AI report ready");
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = "Generate AI Report";
+    setStatus(error.message, true);
+  }
+});
+
+async function handleCompareExperiments() {
+  if (!state.selectedProject) {
+    return;
+  }
+
+  try {
+    setStatus("Comparing experiments");
+    state.experimentComparison = await request(`/training/projects/${state.selectedProject.id}/experiments/compare`);
+    renderWorkspace();
+    setStatus("Experiment comparison ready");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
 
 projectList.addEventListener("click", async (event) => {
   const button = event.target.closest(".open-project");
@@ -646,6 +706,9 @@ function renderFeatureReport(report) {
 function renderTrainingReport(report) {
   const metrics = report.metrics.best || {};
   const comparison = report.metrics.comparison || [];
+  const shap = report.artifacts.shap || {};
+  const mlflow = report.artifacts.mlflow || {};
+  const finalReportUrl = report.final_report_path ? `/training/reports/${report.id}/final-report/download` : "";
 
   return `
     <header class="eda-header">
@@ -656,18 +719,96 @@ function renderTrainingReport(report) {
       <div class="download-group">
         <a class="download-link" href="/training/reports/${report.id}/download">Report</a>
         <a class="download-link secondary-link" href="/training/models/${report.id}/download">Model</a>
+        ${finalReportUrl ? `<a class="download-link secondary-link" href="${finalReportUrl}">AI Report</a>` : ""}
       </div>
     </header>
+    <div class="dataset-actions">
+      <button type="button" class="generate-final-report" data-report-id="${report.id}">Generate AI Report</button>
+    </div>
     <div class="eda-metrics">
       <div><span>Problem</span><strong>${escapeHtml(report.problem_type)}</strong></div>
       <div><span>Target</span><strong>${escapeHtml(report.target_column)}</strong></div>
       <div><span>Best Model</span><strong>${escapeHtml(report.best_model)}</strong></div>
       <div><span>Training Time</span><strong>${report.training_time.toFixed(2)}s</strong></div>
+      <div><span>MLflow</span><strong>${escapeHtml(report.mlflow_run_id ? "Logged" : (mlflow.status || "Not logged"))}</strong></div>
       ${Object.entries(metrics).filter(([key]) => key !== "confusion_matrix").slice(0, 4).map(([key, value]) => `
         <div><span>${escapeHtml(formatLabel(key))}</span><strong>${escapeHtml(formatCell(value))}</strong></div>
       `).join("")}
     </div>
+    ${renderShapSection(shap)}
     ${renderModelComparison(comparison)}
+  `;
+}
+
+function renderExperimentPanel() {
+  const rows = state.experiments.map((run) => `
+    <tr>
+      <td>${escapeHtml(run.id)}</td>
+      <td>${escapeHtml(run.best_model)}</td>
+      <td>${escapeHtml(formatCell(run.score))}</td>
+      <td>${escapeHtml(formatCell(run.roc_auc || run.accuracy || run.r2 || run.rmse))}</td>
+      <td>${run.mlflow_run_id ? "Logged" : "Local"}</td>
+    </tr>
+  `).join("");
+
+  return `
+    <div class="experiment-header">
+      <div>
+        <h3>Experiment Tracking</h3>
+        <p>MLflow runs, SHAP artifacts, final reports, and experiment comparisons.</p>
+      </div>
+      <div class="download-group">
+        <a class="download-link" href="http://localhost:5000" target="_blank" rel="noreferrer">MLflow UI</a>
+        <button type="button" id="compareExperiments">Compare Experiments</button>
+      </div>
+    </div>
+    <section class="eda-section">
+      <h5>Recent Runs</h5>
+      <table>
+        <thead><tr><th>Run</th><th>Best Model</th><th>Score</th><th>Main Metric</th><th>Tracking</th></tr></thead>
+        <tbody>${rows || "<tr><td colspan=\"5\">No experiments yet.</td></tr>"}</tbody>
+      </table>
+    </section>
+    ${state.experimentComparison ? renderExperimentComparison(state.experimentComparison) : ""}
+  `;
+}
+
+function renderExperimentComparison(comparison) {
+  return `
+    <section class="eda-section">
+      <h5>Comparison</h5>
+      <p>${escapeHtml(comparison.summary)}</p>
+      <div class="eda-metrics">
+        <div><span>Runs</span><strong>${formatNumber(comparison.runs.length)}</strong></div>
+        <div><span>Score Delta</span><strong>${escapeHtml(formatCell(comparison.score_delta))}</strong></div>
+        <div><span>Latest</span><strong>${escapeHtml(comparison.latest ? comparison.latest.best_model : "None")}</strong></div>
+        <div><span>Previous</span><strong>${escapeHtml(comparison.previous ? comparison.previous.best_model : "None")}</strong></div>
+      </div>
+    </section>
+  `;
+}
+
+function renderShapSection(shap) {
+  if (!shap || shap.status !== "completed") {
+    return "";
+  }
+
+  const rows = (shap.top_features || []).slice(0, 8).map((item) => `
+    <tr><td>${escapeHtml(item.feature)}</td><td>${escapeHtml(formatCell(item.importance))}</td></tr>
+  `).join("");
+
+  return `
+    <section class="eda-section">
+      <h5>SHAP Explainability</h5>
+      <div class="visual-grid">
+        ${shap.importance_url ? `<figure><img src="${escapeHtml(shap.importance_url)}" alt="SHAP feature importance" /><figcaption>Feature Importance</figcaption></figure>` : ""}
+        ${shap.summary_url ? `<figure><img src="${escapeHtml(shap.summary_url)}" alt="SHAP summary" /><figcaption>SHAP Summary</figcaption></figure>` : ""}
+      </div>
+      <table>
+        <thead><tr><th>Feature</th><th>Importance</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </section>
   `;
 }
 

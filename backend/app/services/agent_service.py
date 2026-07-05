@@ -19,6 +19,9 @@ def chat(db: Session, request: AgentChatRequest) -> AgentChatResponse:
     plan = build_plan(request.message)
     stages = {"dataset": dataset_stage(dataset)}
 
+    if "experiments" in plan:
+        stages["experiments"] = experiment_comparison_stage(db, dataset.project_id)
+
     if "eda" in plan:
         stages["eda"] = run_or_reuse_eda(db, dataset.id, force)
 
@@ -78,6 +81,9 @@ def resolve_dataset(db: Session, dataset_id: int | None, project_id: int | None)
 def build_plan(message: str) -> list[str]:
     lowered = message.lower()
 
+    if is_experiment_comparison_request(lowered):
+        return ["dataset", "experiments", "research", "documentation"]
+
     if any(word in lowered for word in ("train", "model", "best model", "automl", "predict")):
         plan = ["dataset", "eda", "cleaning", "features", "training", "evaluation", "documentation"]
         return add_research_if_needed(plan, lowered)
@@ -95,6 +101,14 @@ def build_plan(message: str) -> list[str]:
         return add_research_if_needed(plan, lowered)
 
     return add_research_if_needed(["dataset", "documentation"], lowered)
+
+
+def is_experiment_comparison_request(lowered_message: str) -> bool:
+    comparison_terms = ("compare", "previous", "experiment", "run history", "today")
+    tracking_terms = ("experiment", "run", "mlflow", "previous", "history")
+    return any(term in lowered_message for term in comparison_terms) and any(
+        term in lowered_message for term in tracking_terms
+    )
 
 
 def add_research_if_needed(plan: list[str], lowered_message: str) -> list[str]:
@@ -243,6 +257,19 @@ def evaluation_stage(training: dict) -> dict:
     }
 
 
+def experiment_comparison_stage(db: Session, project_id: int) -> dict:
+    comparison = training_service.compare_project_experiments(db, project_id)
+    return {
+        "agent": "Experiment Analyst Agent",
+        "status": "completed",
+        "summary": comparison["summary"],
+        "score_delta": comparison["score_delta"],
+        "latest": comparison["latest"],
+        "previous": comparison["previous"],
+        "runs": comparison["runs"][:5],
+    }
+
+
 def research_stage(prompt: str) -> dict:
     try:
         result = rag_service.query_knowledge(prompt, DEFAULT_COLLECTION, top_k=3)
@@ -313,6 +340,10 @@ def build_response(plan: list[str], stages: dict) -> str:
 
     if "evaluation" in stages:
         lines.append(stages["evaluation"]["interpretation"])
+
+    if "experiments" in stages:
+        experiments = stages["experiments"]
+        lines.append(f"Experiment comparison: {experiments['summary']}")
 
     if "research" in stages:
         research = stages["research"]

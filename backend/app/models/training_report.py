@@ -21,6 +21,12 @@ class TrainingReport(Base):
     model_path: Mapped[str] = mapped_column(String(500), nullable=False)
     report_path: Mapped[str] = mapped_column(String(500), nullable=False)
     report_json_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    mlflow_run_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    mlflow_experiment_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    mlflow_artifact_uri: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    shap_summary_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    shap_importance_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    final_report_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     artifacts: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
