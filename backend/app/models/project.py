@@ -28,3 +28,7 @@ class Project(Base):
         back_populates="project",
         cascade="all, delete-orphan",
     )
+    eda_reports: Mapped[list["EDAReport"]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )

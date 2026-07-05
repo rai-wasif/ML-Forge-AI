@@ -43,6 +43,11 @@ button:hover {
   background: var(--accent-strong);
 }
 
+button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 input,
 textarea {
   width: 100%;
@@ -256,6 +261,111 @@ h1 {
   font-weight: 800;
 }
 
+.dataset-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+.eda-report {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.eda-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.eda-header h4,
+.eda-section h5 {
+  margin: 0 0 4px;
+}
+
+.download-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  border-radius: 6px;
+  background: var(--blue);
+  color: #ffffff;
+  padding: 0 12px;
+  text-decoration: none;
+  font-weight: 800;
+}
+
+.eda-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.eda-metrics div {
+  border-left: 3px solid var(--accent);
+  padding-left: 10px;
+}
+
+.eda-metrics span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.eda-metrics strong {
+  font-size: 18px;
+}
+
+.eda-section {
+  margin-top: 14px;
+  overflow-x: auto;
+}
+
+.eda-section table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.eda-section th,
+.eda-section td {
+  border-bottom: 1px solid var(--line);
+  padding: 8px 6px;
+  text-align: left;
+}
+
+.visual-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.visual-grid figure {
+  margin: 0;
+}
+
+.visual-grid img {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.visual-grid figcaption {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .error {
   color: var(--danger);
 }
@@ -282,5 +392,10 @@ h1 {
 
   .metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .eda-metrics,
+  .visual-grid {
+    grid-template-columns: 1fr;
   }
 }

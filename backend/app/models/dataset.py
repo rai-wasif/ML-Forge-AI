@@ -26,3 +26,7 @@ class Dataset(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     project: Mapped["Project"] = relationship(back_populates="datasets")
+    eda_reports: Mapped[list["EDAReport"]] = relationship(
+        back_populates="dataset",
+        cascade="all, delete-orphan",
+    )

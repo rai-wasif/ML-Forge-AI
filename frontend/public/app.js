@@ -4,6 +4,7 @@ const state = {
   projects: [],
   selectedProject: null,
   datasets: [],
+  edaReports: {},
 };
 
 const projectForm = document.querySelector("#projectForm");
@@ -67,7 +68,19 @@ function renderProjects() {
 async function openProject(projectId) {
   state.selectedProject = await request(`/projects/${projectId}`);
   state.datasets = await request(`/datasets/project/${projectId}`);
+  await loadEdaReports();
   renderWorkspace();
+}
+
+async function loadEdaReports() {
+  const entries = await Promise.all(
+    state.datasets.map(async (dataset) => {
+      const report = await request(`/eda/datasets/${dataset.id}/latest`);
+      return [dataset.id, report];
+    }),
+  );
+
+  state.edaReports = Object.fromEntries(entries.filter((entry) => entry[1]));
 }
 
 function renderWorkspace() {
@@ -114,6 +127,8 @@ function renderDatasets() {
 
   state.datasets.forEach((dataset) => {
     const node = datasetTemplate.content.cloneNode(true);
+    const item = node.querySelector(".dataset-item");
+    item.dataset.datasetId = dataset.id;
     node.querySelector("h3").textContent = dataset.name;
     node.querySelector("p").textContent = `Uploaded ${formatDate(dataset.created_at)}`;
     node.querySelector(".file-type").textContent = dataset.file_type || "file";
@@ -123,6 +138,12 @@ function renderDatasets() {
     node.querySelector('[data-field="duplicates"]').textContent = formatNumber(dataset.duplicate_rows);
     node.querySelector('[data-field="size"]').textContent = formatBytes(dataset.file_size_bytes);
     node.querySelector('[data-field="memory"]').textContent = formatBytes(dataset.memory_usage_bytes);
+    const report = state.edaReports[dataset.id];
+    const reportNode = node.querySelector(".eda-report");
+    if (report) {
+      reportNode.hidden = false;
+      reportNode.innerHTML = renderEdaReport(report);
+    }
     datasetList.append(node);
   });
 }
@@ -146,6 +167,7 @@ async function handleUpload(event) {
       body,
     });
     state.datasets = await request(`/datasets/project/${state.selectedProject.id}`);
+    await loadEdaReports();
     renderWorkspace();
     setStatus("Dataset saved");
   } catch (error) {
@@ -173,6 +195,31 @@ projectForm.addEventListener("submit", async (event) => {
     await openProject(project.id);
     setStatus("Project created");
   } catch (error) {
+    setStatus(error.message, true);
+  }
+});
+
+workspace.addEventListener("click", async (event) => {
+  const button = event.target.closest(".analyze-dataset");
+  if (!button) {
+    return;
+  }
+
+  const datasetId = button.closest(".dataset-item").dataset.datasetId;
+
+  try {
+    button.disabled = true;
+    button.textContent = "Analyzing";
+    setStatus("Analyzing dataset");
+    const report = await request(`/eda/datasets/${datasetId}/analyze`, {
+      method: "POST",
+    });
+    state.edaReports[datasetId] = report;
+    renderWorkspace();
+    setStatus("EDA complete");
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = "Analyze Dataset";
     setStatus(error.message, true);
   }
 });
@@ -215,6 +262,102 @@ function formatBytes(bytes) {
   const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
   const value = bytes / 1024 ** index;
   return `${value.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+}
+
+function renderEdaReport(report) {
+  const data = report.report_data;
+  const overview = data.dataset_overview;
+  const numericRows = data.numerical_statistics.slice(0, 6);
+  const missingRows = data.missing_value_analysis.slice(0, 8);
+  const outlierRows = data.outlier_detection.filter((item) => item.outlier_count > 0).slice(0, 8);
+  const visuals = report.visualizations;
+
+  return `
+    <header class="eda-header">
+      <div>
+        <h4>EDA Report</h4>
+        <p>Generated ${formatDate(report.created_at)}</p>
+      </div>
+      <a class="download-link" href="/eda/reports/${report.id}/download">Download Report</a>
+    </header>
+    <div class="eda-metrics">
+      <div><span>Rows</span><strong>${formatNumber(overview.rows)}</strong></div>
+      <div><span>Columns</span><strong>${formatNumber(overview.columns)}</strong></div>
+      <div><span>Missing</span><strong>${formatNumber(overview.total_missing_values)}</strong></div>
+      <div><span>Duplicates</span><strong>${formatNumber(overview.duplicate_rows)}</strong></div>
+    </div>
+    ${renderClassBalance(data.class_balance)}
+    ${renderCompactTable("Numerical Statistics", numericRows, ["column", "mean", "median", "minimum", "maximum", "standard_deviation"])}
+    ${renderCompactTable("Missing Values", missingRows, ["column", "missing_count", "missing_percentage"])}
+    ${renderCompactTable("Outliers", outlierRows, ["column", "outlier_count", "outlier_percentage"])}
+    <div class="visual-grid">
+      ${visuals.map((visual) => `
+        <figure>
+          <img src="${escapeHtml(visual.url)}" alt="${escapeHtml(visual.title)}" />
+          <figcaption>${escapeHtml(visual.title)}</figcaption>
+        </figure>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderClassBalance(classBalance) {
+  if (!classBalance) {
+    return "";
+  }
+
+  const rows = classBalance.classes
+    .map((item) => `<tr><td>${escapeHtml(item.class)}</td><td>${formatNumber(item.count)}</td><td>${item.percentage}%</td></tr>`)
+    .join("");
+
+  return `
+    <section class="eda-section">
+      <h5>Class Balance: ${escapeHtml(classBalance.target_column)}</h5>
+      <table>
+        <thead><tr><th>Class</th><th>Count</th><th>Percent</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </section>
+  `;
+}
+
+function renderCompactTable(title, rows, columns) {
+  if (!rows.length) {
+    return "";
+  }
+
+  const headers = columns.map((column) => `<th>${escapeHtml(formatLabel(column))}</th>`).join("");
+  const body = rows.map((row) => `
+    <tr>
+      ${columns.map((column) => `<td>${escapeHtml(formatCell(row[column]))}</td>`).join("")}
+    </tr>
+  `).join("");
+
+  return `
+    <section class="eda-section">
+      <h5>${escapeHtml(title)}</h5>
+      <table>
+        <thead><tr>${headers}</tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </section>
+  `;
+}
+
+function formatLabel(value) {
+  return String(value).replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatCell(value) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  if (typeof value === "number") {
+    return Number.isInteger(value) ? formatNumber(value) : value.toFixed(3);
+  }
+
+  return value;
 }
 
 function escapeHtml(value) {
