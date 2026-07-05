@@ -9,6 +9,7 @@ const state = {
   featureReports: {},
   trainingReports: {},
   agentResponse: null,
+  knowledgeResponse: null,
 };
 
 const projectForm = document.querySelector("#projectForm");
@@ -160,12 +161,34 @@ function renderWorkspace() {
         ${state.agentResponse ? renderAgentResponse(state.agentResponse) : ""}
       </div>
     </section>
+    <section class="knowledge-panel">
+      <div>
+        <h3>Knowledge Base</h3>
+        <p>Index ML notes, reports, PDFs, Markdown, text, HTML, or JSON into Qdrant.</p>
+      </div>
+      <form class="knowledge-form" id="ragIndexForm">
+        <input id="knowledgeFiles" name="files" type="file" accept=".pdf,.md,.txt,.html,.json" multiple />
+        <div class="knowledge-actions">
+          <input id="knowledgeCollection" name="collection" type="text" value="mlforge_docs" />
+          <button type="submit">Index Knowledge</button>
+        </div>
+      </form>
+      <form class="knowledge-form" id="ragQueryForm">
+        <textarea id="ragQuestion" rows="3" placeholder="Why can logistic regression beat XGBoost on a small dataset?"></textarea>
+        <button type="submit">Ask Knowledge Base</button>
+      </form>
+      <div class="knowledge-response" id="knowledgeResponse"${state.knowledgeResponse ? "" : " hidden"}>
+        ${state.knowledgeResponse ? renderKnowledgeResponse(state.knowledgeResponse) : ""}
+      </div>
+    </section>
     <div class="dataset-list" id="datasetList"></div>
   `;
 
   renderDatasets();
   document.querySelector("#uploadForm").addEventListener("submit", handleUpload);
   document.querySelector("#agentForm").addEventListener("submit", handleAgentPrompt);
+  document.querySelector("#ragIndexForm").addEventListener("submit", handleRagIndex);
+  document.querySelector("#ragQueryForm").addEventListener("submit", handleRagQuery);
 }
 
 function renderDatasets() {
@@ -281,6 +304,65 @@ async function handleAgentPrompt(event) {
     await loadTrainingReports();
     renderWorkspace();
     setStatus("Crew complete");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+async function handleRagIndex(event) {
+  event.preventDefault();
+
+  const fileInput = document.querySelector("#knowledgeFiles");
+  const collectionInput = document.querySelector("#knowledgeCollection");
+  const body = new FormData();
+  body.append("collection", collectionInput.value.trim() || "mlforge_docs");
+  body.append("include_knowledge", "true");
+  body.append("include_reports", "true");
+
+  Array.from(fileInput.files).forEach((file) => {
+    body.append("files", file);
+  });
+
+  try {
+    setStatus("Indexing knowledge");
+    const response = await request("/rag/index", {
+      method: "POST",
+      body,
+    });
+    state.knowledgeResponse = { type: "index", data: response };
+    renderWorkspace();
+    setStatus("Knowledge indexed");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+async function handleRagQuery(event) {
+  event.preventDefault();
+
+  const questionInput = document.querySelector("#ragQuestion");
+  const collectionInput = document.querySelector("#knowledgeCollection");
+  const question = questionInput.value.trim();
+
+  if (!question) {
+    setStatus("Question is required", true);
+    return;
+  }
+
+  try {
+    setStatus("Searching knowledge");
+    const response = await request("/rag/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        question,
+        collection: collectionInput.value.trim() || "mlforge_docs",
+        top_k: 5,
+      }),
+    });
+    state.knowledgeResponse = { type: "query", data: response };
+    renderWorkspace();
+    setStatus("Knowledge answer ready");
   } catch (error) {
     setStatus(error.message, true);
   }
@@ -597,6 +679,43 @@ function renderAgentResponse(response) {
       <h5>Plan</h5>
       <table>
         <tbody>${response.plan.map((step) => `<tr><td>${escapeHtml(step)}</td></tr>`).join("")}</tbody>
+      </table>
+    </section>
+  `;
+}
+
+function renderKnowledgeResponse(response) {
+  if (response.type === "index") {
+    const data = response.data;
+    return `
+      <h4>Knowledge Indexed</h4>
+      <div class="eda-metrics">
+        <div><span>Collection</span><strong>${escapeHtml(data.collection)}</strong></div>
+        <div><span>Documents</span><strong>${formatNumber(data.documents)}</strong></div>
+        <div><span>Chunks</span><strong>${formatNumber(data.chunks)}</strong></div>
+        <div><span>Indexed</span><strong>${formatNumber(data.indexed)}</strong></div>
+      </div>
+      ${renderFeatureList("Sources", data.sources)}
+    `;
+  }
+
+  const data = response.data;
+  const rows = data.sources.map((source) => `
+    <tr>
+      <td>${escapeHtml(source.title || source.source)}</td>
+      <td>${escapeHtml(formatCell(source.score))}</td>
+      <td>${escapeHtml(source.document_type || "")}</td>
+    </tr>
+  `).join("");
+
+  return `
+    <h4>Knowledge Answer</h4>
+    <pre>${escapeHtml(data.answer)}</pre>
+    <section class="eda-section">
+      <h5>Sources</h5>
+      <table>
+        <thead><tr><th>Source</th><th>Score</th><th>Type</th></tr></thead>
+        <tbody>${rows || "<tr><td colspan=\"3\">No sources found.</td></tr>"}</tbody>
       </table>
     </section>
   `;

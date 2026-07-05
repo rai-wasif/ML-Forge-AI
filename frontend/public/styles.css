@@ -225,13 +225,32 @@ h1 {
   background: #fbfcfb;
 }
 
+.knowledge-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
 .assistant-panel h3,
-.assistant-panel p {
+.assistant-panel p,
+.knowledge-panel h3,
+.knowledge-panel p {
   margin-bottom: 4px;
 }
 
-.assistant-form {
+.assistant-form,
+.knowledge-form {
   display: grid;
+  gap: 10px;
+}
+
+.knowledge-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 170px;
   gap: 10px;
 }
 
@@ -240,7 +259,13 @@ h1 {
   padding-top: 12px;
 }
 
-.assistant-response pre {
+.knowledge-response {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.assistant-response pre,
+.knowledge-response pre {
   white-space: pre-wrap;
   margin: 0;
   color: var(--text);
@@ -446,6 +471,10 @@ h1 {
   .upload-form {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .knowledge-actions {
+    grid-template-columns: 1fr;
   }
 
   .upload-form input {

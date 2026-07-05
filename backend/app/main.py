@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routes import agents, cleaning, datasets, eda, features, projects, training
+from app.api.routes import agents, cleaning, datasets, eda, features, projects, rag, training
 from app.database.connection import check_database_connection
 from app.database.init_db import init_db
 
@@ -38,6 +38,7 @@ app.include_router(cleaning.router)
 app.include_router(features.router)
 app.include_router(training.router)
 app.include_router(agents.router)
+app.include_router(rag.router)
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 FRONTEND_PUBLIC_DIR = ROOT_DIR / "frontend" / "public"

@@ -25,6 +25,17 @@ services:
     volumes:
       - pgadmin_data:/var/lib/pgadmin
 
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: mlforge-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
 volumes:
   postgres_data:
   pgadmin_data:
+  qdrant_data:

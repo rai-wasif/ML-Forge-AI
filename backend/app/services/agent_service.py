@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session
 
 from app.models.dataset import Dataset
 from app.schemas.agents import AgentChatRequest, AgentChatResponse
-from app.services import cleaning_service, eda_service, feature_service, training_service
+from app.rag.config import DEFAULT_COLLECTION
+from app.services import cleaning_service, eda_service, feature_service, rag_service, training_service
 
 
 AGENT_REPORT_ROOT = Path(__file__).resolve().parents[1] / "storage" / "reports" / "agents"
@@ -36,6 +37,9 @@ def chat(db: Session, request: AgentChatRequest) -> AgentChatResponse:
             stages["features"] = run_or_reuse_features(db, dataset.id, False)
         stages["training"] = run_or_reuse_training(db, dataset.id, force)
         stages["evaluation"] = evaluation_stage(stages["training"])
+
+    if "research" in plan:
+        stages["research"] = research_stage(request.message)
 
     message = build_response(plan, stages)
     documentation_path = write_documentation(dataset, request.message, plan, stages, message)
@@ -75,18 +79,48 @@ def build_plan(message: str) -> list[str]:
     lowered = message.lower()
 
     if any(word in lowered for word in ("train", "model", "best model", "automl", "predict")):
-        return ["dataset", "eda", "cleaning", "features", "training", "evaluation", "documentation"]
+        plan = ["dataset", "eda", "cleaning", "features", "training", "evaluation", "documentation"]
+        return add_research_if_needed(plan, lowered)
 
     if any(word in lowered for word in ("feature", "engineer", "prepare")):
-        return ["dataset", "eda", "cleaning", "features", "documentation"]
+        plan = ["dataset", "eda", "cleaning", "features", "documentation"]
+        return add_research_if_needed(plan, lowered)
 
     if any(word in lowered for word in ("clean", "preprocess", "missing", "outlier")):
-        return ["dataset", "eda", "cleaning", "documentation"]
+        plan = ["dataset", "eda", "cleaning", "documentation"]
+        return add_research_if_needed(plan, lowered)
 
     if any(word in lowered for word in ("eda", "analyze", "analysis", "profile")):
-        return ["dataset", "eda", "documentation"]
+        plan = ["dataset", "eda", "documentation"]
+        return add_research_if_needed(plan, lowered)
 
-    return ["dataset", "documentation"]
+    return add_research_if_needed(["dataset", "documentation"], lowered)
+
+
+def add_research_if_needed(plan: list[str], lowered_message: str) -> list[str]:
+    research_terms = (
+        "why",
+        "explain",
+        "compare",
+        "interpret",
+        "recommend",
+        "roc",
+        "auc",
+        "metric",
+        "logistic",
+        "xgboost",
+        "overfit",
+        "underfit",
+        "feature importance",
+    )
+
+    if not any(term in lowered_message for term in research_terms):
+        return plan
+
+    output = list(plan)
+    if "research" not in output:
+        output.insert(max(len(output) - 1, 0), "research")
+    return output
 
 
 def should_force(message: str) -> bool:
@@ -209,6 +243,32 @@ def evaluation_stage(training: dict) -> dict:
     }
 
 
+def research_stage(prompt: str) -> dict:
+    try:
+        result = rag_service.query_knowledge(prompt, DEFAULT_COLLECTION, top_k=3)
+        sources = [
+            {
+                "title": source.get("title") or source.get("source", "Knowledge source"),
+                "score": round(source.get("score", 0.0), 3),
+                "source": source.get("source", ""),
+            }
+            for source in result["sources"]
+        ]
+        return {
+            "agent": "Research Agent",
+            "status": "completed",
+            "answer": result["answer"],
+            "sources": sources,
+        }
+    except Exception as exc:
+        return {
+            "agent": "Research Agent",
+            "status": "unavailable",
+            "answer": f"Knowledge-base research was skipped: {exc}",
+            "sources": [],
+        }
+
+
 def build_response(plan: list[str], stages: dict) -> str:
     dataset = stages["dataset"]
     lines = [
@@ -253,6 +313,10 @@ def build_response(plan: list[str], stages: dict) -> str:
 
     if "evaluation" in stages:
         lines.append(stages["evaluation"]["interpretation"])
+
+    if "research" in stages:
+        research = stages["research"]
+        lines.append(f"Research {research['status']}: {research['answer']}")
 
     lines.append("Manual buttons are still available for debugging each stage.")
     return "\n".join(lines)
