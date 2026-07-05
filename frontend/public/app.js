@@ -6,6 +6,7 @@ const state = {
   datasets: [],
   edaReports: {},
   cleaningReports: {},
+  featureReports: {},
 };
 
 const projectForm = document.querySelector("#projectForm");
@@ -71,6 +72,7 @@ async function openProject(projectId) {
   state.datasets = await request(`/datasets/project/${projectId}`);
   await loadEdaReports();
   await loadCleaningReports();
+  await loadFeatureReports();
   renderWorkspace();
 }
 
@@ -94,6 +96,17 @@ async function loadCleaningReports() {
   );
 
   state.cleaningReports = Object.fromEntries(entries.filter((entry) => entry[1]));
+}
+
+async function loadFeatureReports() {
+  const entries = await Promise.all(
+    state.datasets.map(async (dataset) => {
+      const report = await request(`/features/datasets/${dataset.id}/latest`);
+      return [dataset.id, report];
+    }),
+  );
+
+  state.featureReports = Object.fromEntries(entries.filter((entry) => entry[1]));
 }
 
 function renderWorkspace() {
@@ -163,6 +176,12 @@ function renderDatasets() {
       cleaningReportNode.hidden = false;
       cleaningReportNode.innerHTML = renderCleaningReport(cleaningReport);
     }
+    const featureReport = state.featureReports[dataset.id];
+    const featureReportNode = node.querySelector(".feature-report");
+    if (featureReport) {
+      featureReportNode.hidden = false;
+      featureReportNode.innerHTML = renderFeatureReport(featureReport);
+    }
     datasetList.append(node);
   });
 }
@@ -188,6 +207,7 @@ async function handleUpload(event) {
     state.datasets = await request(`/datasets/project/${state.selectedProject.id}`);
     await loadEdaReports();
     await loadCleaningReports();
+    await loadFeatureReports();
     renderWorkspace();
     setStatus("Dataset saved");
   } catch (error) {
@@ -260,11 +280,37 @@ workspace.addEventListener("click", async (event) => {
       method: "POST",
     });
     state.cleaningReports[datasetId] = report;
+    await loadFeatureReports();
     renderWorkspace();
     setStatus("Cleaning complete");
   } catch (error) {
     button.disabled = false;
     button.textContent = "Clean Dataset";
+    setStatus(error.message, true);
+  }
+});
+
+workspace.addEventListener("click", async (event) => {
+  const button = event.target.closest(".generate-features");
+  if (!button) {
+    return;
+  }
+
+  const datasetId = button.closest(".dataset-item").dataset.datasetId;
+
+  try {
+    button.disabled = true;
+    button.textContent = "Generating";
+    setStatus("Generating features");
+    const report = await request(`/features/datasets/${datasetId}/generate`, {
+      method: "POST",
+    });
+    state.featureReports[datasetId] = report;
+    renderWorkspace();
+    setStatus("Features ready");
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = "Generate Features";
     setStatus(error.message, true);
   }
 });
@@ -363,6 +409,9 @@ function renderCleaningReport(report) {
         <a class="download-link secondary-link" href="/cleaning/reports/${report.id}/cleaned-dataset/download">Cleaned CSV</a>
       </div>
     </header>
+    <div class="dataset-actions">
+      <button type="button" class="generate-features">Generate Features</button>
+    </div>
     <div class="eda-metrics">
       <div><span>Rows Before</span><strong>${formatNumber(report.original_rows)}</strong></div>
       <div><span>Rows After</span><strong>${formatNumber(report.final_rows)}</strong></div>
@@ -375,6 +424,37 @@ function renderCleaningReport(report) {
     ${renderCompactTable("Filled Missing Values", summary.missing_value_report.filled_columns, ["column", "missing_before", "strategy", "fill_value"])}
     ${renderCompactTable("Outliers Handled", summary.outlier_report.columns, ["column", "outlier_count", "strategy", "lower_bound", "upper_bound"])}
     ${renderCompactTable("Invalid Values", summary.invalid_value_report.invalid_values, ["column", "invalid_count", "rule", "strategy"])}
+  `;
+}
+
+function renderFeatureReport(report) {
+  const summary = report.feature_summary;
+
+  return `
+    <header class="eda-header">
+      <div>
+        <h4>Feature Report</h4>
+        <p>Generated ${formatDate(report.created_at)}</p>
+      </div>
+      <div class="download-group">
+        <a class="download-link" href="/features/reports/${report.id}/download">Report</a>
+        <a class="download-link secondary-link" href="/features/datasets/${report.dataset_id}/download">Feature Dataset</a>
+      </div>
+    </header>
+    <div class="eda-metrics">
+      <div><span>Original Columns</span><strong>${formatNumber(report.original_columns)}</strong></div>
+      <div><span>Final Columns</span><strong>${formatNumber(report.final_columns)}</strong></div>
+      <div><span>Encoding</span><strong>${escapeHtml(report.encoding_method)}</strong></div>
+      <div><span>Scaling</span><strong>${escapeHtml(report.scaling_method)}</strong></div>
+      <div><span>Created</span><strong>${formatNumber(report.features_created.length)}</strong></div>
+      <div><span>Dropped</span><strong>${formatNumber(report.dropped_columns.length)}</strong></div>
+      <div><span>Target</span><strong>${escapeHtml(report.target_column || "None")}</strong></div>
+    </div>
+    ${renderFeatureList("Created Features", report.features_created)}
+    ${renderFeatureList("Dropped Columns", report.dropped_columns)}
+    ${renderFeatureList("Scaled Columns", summary.scaling_report.scaled_columns)}
+    ${renderFeatureList("One-Hot Encoded", summary.encoding_report.one_hot_columns)}
+    ${renderFeatureList("Label Encoded", summary.encoding_report.label_encoded_columns)}
   `;
 }
 
@@ -416,6 +496,23 @@ function renderCompactTable(title, rows, columns) {
       <table>
         <thead><tr>${headers}</tr></thead>
         <tbody>${body}</tbody>
+      </table>
+    </section>
+  `;
+}
+
+function renderFeatureList(title, items) {
+  if (!items || !items.length) {
+    return "";
+  }
+
+  const rows = items.map((item) => `<tr><td>${escapeHtml(item)}</td></tr>`).join("");
+
+  return `
+    <section class="eda-section">
+      <h5>${escapeHtml(title)}</h5>
+      <table>
+        <tbody>${rows}</tbody>
       </table>
     </section>
   `;
