@@ -143,9 +143,9 @@ function renderWorkspace() {
     workspace.innerHTML = `
       <div class="empty-state">
         <div class="empty-orbit">ML</div>
-        <p class="eyebrow">Ready for a demo run</p>
+        <p class="eyebrow">System Ready</p>
         <h2>Select a project or create a new one</h2>
-        <p>Projects, datasets, experiments, reports, and knowledge-base answers will appear here.</p>
+        <p>Projects, datasets, experiment runs, generated reports, and knowledge-base answers will appear here.</p>
         <div class="kpi-grid">
           <div class="kpi-card"><span>Projects</span><strong>${formatNumber(state.projects.length)}</strong></div>
           <div class="kpi-card"><span>Datasets</span><strong>0</strong></div>
@@ -268,7 +268,7 @@ function renderPipelineOverview() {
   return `
     <section class="pipeline-card">
       <div>
-        <p class="eyebrow">ML Workflow</p>
+        <p class="eyebrow">Pipeline</p>
         <h3>${dataset ? escapeHtml(dataset.name) : "No dataset uploaded"}</h3>
       </div>
       <div class="pipeline-strip">
