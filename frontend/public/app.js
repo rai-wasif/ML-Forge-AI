@@ -7,6 +7,7 @@ const state = {
   edaReports: {},
   cleaningReports: {},
   featureReports: {},
+  trainingReports: {},
 };
 
 const projectForm = document.querySelector("#projectForm");
@@ -73,6 +74,7 @@ async function openProject(projectId) {
   await loadEdaReports();
   await loadCleaningReports();
   await loadFeatureReports();
+  await loadTrainingReports();
   renderWorkspace();
 }
 
@@ -107,6 +109,17 @@ async function loadFeatureReports() {
   );
 
   state.featureReports = Object.fromEntries(entries.filter((entry) => entry[1]));
+}
+
+async function loadTrainingReports() {
+  const entries = await Promise.all(
+    state.datasets.map(async (dataset) => {
+      const report = await request(`/training/datasets/${dataset.id}/latest`);
+      return [dataset.id, report];
+    }),
+  );
+
+  state.trainingReports = Object.fromEntries(entries.filter((entry) => entry[1]));
 }
 
 function renderWorkspace() {
@@ -182,6 +195,12 @@ function renderDatasets() {
       featureReportNode.hidden = false;
       featureReportNode.innerHTML = renderFeatureReport(featureReport);
     }
+    const trainingReport = state.trainingReports[dataset.id];
+    const trainingReportNode = node.querySelector(".training-report");
+    if (trainingReport) {
+      trainingReportNode.hidden = false;
+      trainingReportNode.innerHTML = renderTrainingReport(trainingReport);
+    }
     datasetList.append(node);
   });
 }
@@ -208,6 +227,7 @@ async function handleUpload(event) {
     await loadEdaReports();
     await loadCleaningReports();
     await loadFeatureReports();
+    await loadTrainingReports();
     renderWorkspace();
     setStatus("Dataset saved");
   } catch (error) {
@@ -306,11 +326,40 @@ workspace.addEventListener("click", async (event) => {
       method: "POST",
     });
     state.featureReports[datasetId] = report;
+    await loadTrainingReports();
     renderWorkspace();
     setStatus("Features ready");
   } catch (error) {
     button.disabled = false;
     button.textContent = "Generate Features";
+    setStatus(error.message, true);
+  }
+});
+
+workspace.addEventListener("click", async (event) => {
+  const button = event.target.closest(".train-model");
+  if (!button) {
+    return;
+  }
+
+  const datasetId = button.closest(".dataset-item").dataset.datasetId;
+
+  try {
+    button.disabled = true;
+    button.textContent = "Preparing Dataset... 35%";
+    setStatus("Training model");
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    button.textContent = "Training Models... 60%";
+    const report = await request(`/training/datasets/${datasetId}/train`, {
+      method: "POST",
+    });
+    button.textContent = "Evaluating... 100%";
+    state.trainingReports[datasetId] = report;
+    renderWorkspace();
+    setStatus("Training complete");
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = "Train Model";
     setStatus(error.message, true);
   }
 });
@@ -441,6 +490,9 @@ function renderFeatureReport(report) {
         <a class="download-link secondary-link" href="/features/datasets/${report.dataset_id}/download">Feature Dataset</a>
       </div>
     </header>
+    <div class="dataset-actions">
+      <button type="button" class="train-model">Train Model</button>
+    </div>
     <div class="eda-metrics">
       <div><span>Original Columns</span><strong>${formatNumber(report.original_columns)}</strong></div>
       <div><span>Final Columns</span><strong>${formatNumber(report.final_columns)}</strong></div>
@@ -455,6 +507,59 @@ function renderFeatureReport(report) {
     ${renderFeatureList("Scaled Columns", summary.scaling_report.scaled_columns)}
     ${renderFeatureList("One-Hot Encoded", summary.encoding_report.one_hot_columns)}
     ${renderFeatureList("Label Encoded", summary.encoding_report.label_encoded_columns)}
+  `;
+}
+
+function renderTrainingReport(report) {
+  const metrics = report.metrics.best || {};
+  const comparison = report.metrics.comparison || [];
+
+  return `
+    <header class="eda-header">
+      <div>
+        <h4>Training Report</h4>
+        <p>Generated ${formatDate(report.created_at)}</p>
+      </div>
+      <div class="download-group">
+        <a class="download-link" href="/training/reports/${report.id}/download">Report</a>
+        <a class="download-link secondary-link" href="/training/models/${report.id}/download">Model</a>
+      </div>
+    </header>
+    <div class="eda-metrics">
+      <div><span>Problem</span><strong>${escapeHtml(report.problem_type)}</strong></div>
+      <div><span>Target</span><strong>${escapeHtml(report.target_column)}</strong></div>
+      <div><span>Best Model</span><strong>${escapeHtml(report.best_model)}</strong></div>
+      <div><span>Training Time</span><strong>${report.training_time.toFixed(2)}s</strong></div>
+      ${Object.entries(metrics).filter(([key]) => key !== "confusion_matrix").slice(0, 4).map(([key, value]) => `
+        <div><span>${escapeHtml(formatLabel(key))}</span><strong>${escapeHtml(formatCell(value))}</strong></div>
+      `).join("")}
+    </div>
+    ${renderModelComparison(comparison)}
+  `;
+}
+
+function renderModelComparison(rows) {
+  if (!rows.length) {
+    return "";
+  }
+
+  const body = rows.map((row) => `
+    <tr>
+      <td>${escapeHtml(row.model)}</td>
+      <td>${escapeHtml(formatCell(row.score))}</td>
+      <td>${escapeHtml(formatCell(row.training_time))}</td>
+      <td>${escapeHtml(formatCell(row.inference_time))}</td>
+    </tr>
+  `).join("");
+
+  return `
+    <section class="eda-section">
+      <h5>Model Comparison</h5>
+      <table>
+        <thead><tr><th>Model</th><th>Score</th><th>Training Time</th><th>Inference Time</th></tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </section>
   `;
 }
 

@@ -40,3 +40,7 @@ class Project(Base):
         back_populates="project",
         cascade="all, delete-orphan",
     )
+    training_reports: Mapped[list["TrainingReport"]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
