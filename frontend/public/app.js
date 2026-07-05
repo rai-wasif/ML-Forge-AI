@@ -8,6 +8,7 @@ const state = {
   cleaningReports: {},
   featureReports: {},
   trainingReports: {},
+  agentResponse: null,
 };
 
 const projectForm = document.querySelector("#projectForm");
@@ -146,11 +147,25 @@ function renderWorkspace() {
         <button type="submit">Upload Dataset</button>
       </form>
     </header>
+    <section class="assistant-panel">
+      <div>
+        <h3>AI Assistant</h3>
+        <p>Ask the ML Engineer Crew to run the pipeline for this project.</p>
+      </div>
+      <form class="assistant-form" id="agentForm">
+        <textarea id="agentPrompt" rows="3" placeholder="Analyze my uploaded Titanic dataset and train the best model."></textarea>
+        <button type="submit"${state.datasets.length ? "" : " disabled"}>Run Crew</button>
+      </form>
+      <div class="assistant-response" id="agentResponse"${state.agentResponse ? "" : " hidden"}>
+        ${state.agentResponse ? renderAgentResponse(state.agentResponse) : ""}
+      </div>
+    </section>
     <div class="dataset-list" id="datasetList"></div>
   `;
 
   renderDatasets();
   document.querySelector("#uploadForm").addEventListener("submit", handleUpload);
+  document.querySelector("#agentForm").addEventListener("submit", handleAgentPrompt);
 }
 
 function renderDatasets() {
@@ -230,6 +245,42 @@ async function handleUpload(event) {
     await loadTrainingReports();
     renderWorkspace();
     setStatus("Dataset saved");
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+}
+
+async function handleAgentPrompt(event) {
+  event.preventDefault();
+
+  if (!state.selectedProject || !state.datasets.length) {
+    setStatus("Upload a dataset first", true);
+    return;
+  }
+
+  const promptInput = document.querySelector("#agentPrompt");
+  const prompt = promptInput.value.trim() || "Analyze this dataset and train the best model.";
+  const dataset = state.datasets[0];
+
+  try {
+    setStatus("Crew running");
+    const response = await request("/agents/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: prompt,
+        dataset_id: dataset.id,
+        project_id: state.selectedProject.id,
+      }),
+    });
+    state.agentResponse = response;
+    state.datasets = await request(`/datasets/project/${state.selectedProject.id}`);
+    await loadEdaReports();
+    await loadCleaningReports();
+    await loadFeatureReports();
+    await loadTrainingReports();
+    renderWorkspace();
+    setStatus("Crew complete");
   } catch (error) {
     setStatus(error.message, true);
   }
@@ -535,6 +586,19 @@ function renderTrainingReport(report) {
       `).join("")}
     </div>
     ${renderModelComparison(comparison)}
+  `;
+}
+
+function renderAgentResponse(response) {
+  return `
+    <h4>ML Engineer Crew</h4>
+    <pre>${escapeHtml(response.message)}</pre>
+    <section class="eda-section">
+      <h5>Plan</h5>
+      <table>
+        <tbody>${response.plan.map((step) => `<tr><td>${escapeHtml(step)}</td></tr>`).join("")}</tbody>
+      </table>
+    </section>
   `;
 }
 

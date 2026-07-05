@@ -1,0 +1,291 @@
+from pathlib import Path
+
+from fastapi import HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.models.dataset import Dataset
+from app.schemas.agents import AgentChatRequest, AgentChatResponse
+from app.services import cleaning_service, eda_service, feature_service, training_service
+
+
+AGENT_REPORT_ROOT = Path(__file__).resolve().parents[1] / "storage" / "reports" / "agents"
+
+
+def chat(db: Session, request: AgentChatRequest) -> AgentChatResponse:
+    dataset = resolve_dataset(db, request.dataset_id, request.project_id)
+    force = should_force(request.message)
+    plan = build_plan(request.message)
+    stages = {"dataset": dataset_stage(dataset)}
+
+    if "eda" in plan:
+        stages["eda"] = run_or_reuse_eda(db, dataset.id, force)
+
+    if "cleaning" in plan:
+        if "eda" not in stages:
+            stages["eda"] = run_or_reuse_eda(db, dataset.id, False)
+        stages["cleaning"] = run_or_reuse_cleaning(db, dataset.id, force)
+
+    if "features" in plan:
+        if "cleaning" not in stages:
+            stages["cleaning"] = run_or_reuse_cleaning(db, dataset.id, False)
+        stages["features"] = run_or_reuse_features(db, dataset.id, force)
+
+    if "training" in plan:
+        if "features" not in stages:
+            stages["features"] = run_or_reuse_features(db, dataset.id, False)
+        stages["training"] = run_or_reuse_training(db, dataset.id, force)
+        stages["evaluation"] = evaluation_stage(stages["training"])
+
+    message = build_response(plan, stages)
+    documentation_path = write_documentation(dataset, request.message, plan, stages, message)
+
+    return AgentChatResponse(
+        message=message,
+        plan=plan,
+        dataset_id=dataset.id,
+        project_id=dataset.project_id,
+        stages=stages,
+        artifacts={"documentation_path": str(documentation_path)},
+    )
+
+
+def resolve_dataset(db: Session, dataset_id: int | None, project_id: int | None) -> Dataset:
+    if dataset_id is not None:
+        dataset = db.get(Dataset, dataset_id)
+    elif project_id is not None:
+        dataset = db.scalars(
+            select(Dataset)
+            .where(Dataset.project_id == project_id)
+            .order_by(Dataset.created_at.desc())
+        ).first()
+    else:
+        dataset = db.scalars(select(Dataset).order_by(Dataset.created_at.desc())).first()
+
+    if dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No dataset was found for the agent request.",
+        )
+
+    return dataset
+
+
+def build_plan(message: str) -> list[str]:
+    lowered = message.lower()
+
+    if any(word in lowered for word in ("train", "model", "best model", "automl", "predict")):
+        return ["dataset", "eda", "cleaning", "features", "training", "evaluation", "documentation"]
+
+    if any(word in lowered for word in ("feature", "engineer", "prepare")):
+        return ["dataset", "eda", "cleaning", "features", "documentation"]
+
+    if any(word in lowered for word in ("clean", "preprocess", "missing", "outlier")):
+        return ["dataset", "eda", "cleaning", "documentation"]
+
+    if any(word in lowered for word in ("eda", "analyze", "analysis", "profile")):
+        return ["dataset", "eda", "documentation"]
+
+    return ["dataset", "documentation"]
+
+
+def should_force(message: str) -> bool:
+    lowered = message.lower()
+    return any(word in lowered for word in ("rerun", "again", "fresh", "retrain", "regenerate", "force"))
+
+
+def dataset_stage(dataset: Dataset) -> dict:
+    return {
+        "agent": "Dataset Agent",
+        "status": "completed",
+        "dataset_name": dataset.name,
+        "rows": dataset.row_count,
+        "columns": dataset.column_count,
+        "missing_values": dataset.missing_values,
+        "duplicates": dataset.duplicate_rows,
+    }
+
+
+def run_or_reuse_eda(db: Session, dataset_id: int, force: bool) -> dict:
+    report = None if force else eda_service.get_latest_report(db, dataset_id)
+    status_label = "reused"
+    if report is None:
+        report = eda_service.analyze_dataset(db, dataset_id)
+        status_label = "completed"
+
+    overview = report.report_data["dataset_overview"]
+    return {
+        "agent": "EDA Agent",
+        "status": status_label,
+        "report_id": report.id,
+        "rows": overview["rows"],
+        "columns": overview["columns"],
+        "missing_values": overview["total_missing_values"],
+        "duplicates": overview["duplicate_rows"],
+        "visualizations": len(report.visualizations),
+    }
+
+
+def run_or_reuse_cleaning(db: Session, dataset_id: int, force: bool) -> dict:
+    report = None if force else cleaning_service.get_latest_report(db, dataset_id)
+    status_label = "reused"
+    if report is None:
+        report = cleaning_service.run_cleaning(db, dataset_id)
+        status_label = "completed"
+
+    return {
+        "agent": "Cleaning Agent",
+        "status": status_label,
+        "report_id": report.id,
+        "missing_before": report.missing_values_before,
+        "missing_after": report.missing_values_after,
+        "duplicates_removed": report.duplicates_removed,
+        "outliers_handled": report.outliers_handled,
+        "cleaned_dataset_path": report.cleaned_dataset_path,
+    }
+
+
+def run_or_reuse_features(db: Session, dataset_id: int, force: bool) -> dict:
+    report = None if force else feature_service.get_latest_report(db, dataset_id)
+    status_label = "reused"
+    if report is None:
+        report = feature_service.generate_features(db, dataset_id)
+        status_label = "completed"
+
+    return {
+        "agent": "Feature Agent",
+        "status": status_label,
+        "report_id": report.id,
+        "original_columns": report.original_columns,
+        "final_columns": report.final_columns,
+        "encoding_method": report.encoding_method,
+        "scaling_method": report.scaling_method,
+        "features_created": report.features_created,
+        "dropped_columns": report.dropped_columns,
+        "target_column": report.target_column,
+        "engineered_dataset_path": report.engineered_dataset_path,
+    }
+
+
+def run_or_reuse_training(db: Session, dataset_id: int, force: bool) -> dict:
+    report = None if force else training_service.get_latest_report(db, dataset_id)
+    status_label = "reused"
+    if report is None:
+        report = training_service.train_dataset(db, dataset_id)
+        status_label = "completed"
+
+    best_metrics = report.metrics.get("best", {})
+    return {
+        "agent": "Training Agent",
+        "status": status_label,
+        "report_id": report.id,
+        "problem_type": report.problem_type,
+        "target_column": report.target_column,
+        "selected_models": report.selected_models,
+        "best_model": report.best_model,
+        "best_metrics": best_metrics,
+        "training_time": report.training_time,
+        "model_path": report.model_path,
+    }
+
+
+def evaluation_stage(training: dict) -> dict:
+    metrics = training.get("best_metrics", {})
+    if training.get("problem_type") == "classification":
+        interpretation = (
+            f"The best model reached accuracy {metrics.get('accuracy')} "
+            f"and ROC-AUC {metrics.get('roc_auc')}, so it is a usable baseline."
+        )
+    else:
+        interpretation = (
+            f"The best model reached RMSE {metrics.get('rmse')} "
+            f"and R2 {metrics.get('r2')}."
+        )
+
+    return {
+        "agent": "Evaluation Agent",
+        "status": "completed",
+        "interpretation": interpretation,
+    }
+
+
+def build_response(plan: list[str], stages: dict) -> str:
+    dataset = stages["dataset"]
+    lines = [
+        "ML Engineer Crew completed the request.",
+        f"Dataset: {dataset['dataset_name']} ({dataset['rows']} rows, {dataset['columns']} columns).",
+    ]
+
+    if "eda" in stages:
+        eda = stages["eda"]
+        lines.append(
+            f"EDA {eda['status']}: {eda['missing_values']} missing values, "
+            f"{eda['duplicates']} duplicates, {eda['visualizations']} visualizations."
+        )
+
+    if "cleaning" in stages:
+        cleaning = stages["cleaning"]
+        lines.append(
+            f"Cleaning {cleaning['status']}: missing {cleaning['missing_before']} -> "
+            f"{cleaning['missing_after']}, duplicates removed {cleaning['duplicates_removed']}, "
+            f"outliers handled {cleaning['outliers_handled']}."
+        )
+
+    if "features" in stages:
+        features = stages["features"]
+        lines.append(
+            f"Features {features['status']}: columns {features['original_columns']} -> "
+            f"{features['final_columns']}, target {features['target_column']}."
+        )
+
+    if "training" in stages:
+        training = stages["training"]
+        metrics = training["best_metrics"]
+        metric_text = (
+            f"accuracy {metrics.get('accuracy')}, ROC-AUC {metrics.get('roc_auc')}"
+            if training["problem_type"] == "classification"
+            else f"RMSE {metrics.get('rmse')}, R2 {metrics.get('r2')}"
+        )
+        lines.append(
+            f"Training {training['status']}: detected {training['problem_type']}, "
+            f"best model {training['best_model']} with {metric_text}."
+        )
+
+    if "evaluation" in stages:
+        lines.append(stages["evaluation"]["interpretation"])
+
+    lines.append("Manual buttons are still available for debugging each stage.")
+    return "\n".join(lines)
+
+
+def write_documentation(dataset: Dataset, prompt: str, plan: list[str], stages: dict, message: str) -> Path:
+    output_dir = AGENT_REPORT_ROOT / f"project_{dataset.project_id:03d}" / f"dataset_{dataset.id:03d}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / "agent_summary.md"
+
+    content = [
+        "# ML Engineer Crew Summary",
+        "",
+        f"Prompt: {prompt}",
+        "",
+        "## Plan",
+        "",
+        *[f"- {step}" for step in plan],
+        "",
+        "## Result",
+        "",
+        message,
+        "",
+        "## Stage Data",
+        "",
+    ]
+
+    for name, data in stages.items():
+        content.append(f"### {name.title()}")
+        content.append("")
+        for key, value in data.items():
+            content.append(f"- {key}: {value}")
+        content.append("")
+
+    output_path.write_text("\n".join(content), encoding="utf-8")
+    return output_path
