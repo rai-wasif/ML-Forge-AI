@@ -273,6 +273,12 @@ h1 {
   border-top: 1px solid var(--line);
 }
 
+.cleaning-report {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
 .eda-header {
   display: flex;
   align-items: center;
@@ -296,6 +302,17 @@ h1 {
   padding: 0 12px;
   text-decoration: none;
   font-weight: 800;
+}
+
+.download-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.secondary-link {
+  background: var(--accent);
 }
 
 .eda-metrics {

@@ -5,6 +5,7 @@ const state = {
   selectedProject: null,
   datasets: [],
   edaReports: {},
+  cleaningReports: {},
 };
 
 const projectForm = document.querySelector("#projectForm");
@@ -69,6 +70,7 @@ async function openProject(projectId) {
   state.selectedProject = await request(`/projects/${projectId}`);
   state.datasets = await request(`/datasets/project/${projectId}`);
   await loadEdaReports();
+  await loadCleaningReports();
   renderWorkspace();
 }
 
@@ -81,6 +83,17 @@ async function loadEdaReports() {
   );
 
   state.edaReports = Object.fromEntries(entries.filter((entry) => entry[1]));
+}
+
+async function loadCleaningReports() {
+  const entries = await Promise.all(
+    state.datasets.map(async (dataset) => {
+      const report = await request(`/cleaning/datasets/${dataset.id}/latest`);
+      return [dataset.id, report];
+    }),
+  );
+
+  state.cleaningReports = Object.fromEntries(entries.filter((entry) => entry[1]));
 }
 
 function renderWorkspace() {
@@ -144,6 +157,12 @@ function renderDatasets() {
       reportNode.hidden = false;
       reportNode.innerHTML = renderEdaReport(report);
     }
+    const cleaningReport = state.cleaningReports[dataset.id];
+    const cleaningReportNode = node.querySelector(".cleaning-report");
+    if (cleaningReport) {
+      cleaningReportNode.hidden = false;
+      cleaningReportNode.innerHTML = renderCleaningReport(cleaningReport);
+    }
     datasetList.append(node);
   });
 }
@@ -168,6 +187,7 @@ async function handleUpload(event) {
     });
     state.datasets = await request(`/datasets/project/${state.selectedProject.id}`);
     await loadEdaReports();
+    await loadCleaningReports();
     renderWorkspace();
     setStatus("Dataset saved");
   } catch (error) {
@@ -220,6 +240,31 @@ workspace.addEventListener("click", async (event) => {
   } catch (error) {
     button.disabled = false;
     button.textContent = "Analyze Dataset";
+    setStatus(error.message, true);
+  }
+});
+
+workspace.addEventListener("click", async (event) => {
+  const button = event.target.closest(".clean-dataset");
+  if (!button) {
+    return;
+  }
+
+  const datasetId = button.closest(".dataset-item").dataset.datasetId;
+
+  try {
+    button.disabled = true;
+    button.textContent = "Cleaning";
+    setStatus("Cleaning dataset");
+    const report = await request(`/cleaning/datasets/${datasetId}/run`, {
+      method: "POST",
+    });
+    state.cleaningReports[datasetId] = report;
+    renderWorkspace();
+    setStatus("Cleaning complete");
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = "Clean Dataset";
     setStatus(error.message, true);
   }
 });
@@ -280,6 +325,9 @@ function renderEdaReport(report) {
       </div>
       <a class="download-link" href="/eda/reports/${report.id}/download">Download Report</a>
     </header>
+    <div class="dataset-actions">
+      <button type="button" class="clean-dataset">Clean Dataset</button>
+    </div>
     <div class="eda-metrics">
       <div><span>Rows</span><strong>${formatNumber(overview.rows)}</strong></div>
       <div><span>Columns</span><strong>${formatNumber(overview.columns)}</strong></div>
@@ -298,6 +346,35 @@ function renderEdaReport(report) {
         </figure>
       `).join("")}
     </div>
+  `;
+}
+
+function renderCleaningReport(report) {
+  const summary = report.cleaning_summary;
+
+  return `
+    <header class="eda-header">
+      <div>
+        <h4>Cleaning Report</h4>
+        <p>Generated ${formatDate(report.created_at)}</p>
+      </div>
+      <div class="download-group">
+        <a class="download-link" href="/cleaning/reports/${report.id}/download">Report</a>
+        <a class="download-link secondary-link" href="/cleaning/reports/${report.id}/cleaned-dataset/download">Cleaned CSV</a>
+      </div>
+    </header>
+    <div class="eda-metrics">
+      <div><span>Rows Before</span><strong>${formatNumber(report.original_rows)}</strong></div>
+      <div><span>Rows After</span><strong>${formatNumber(report.final_rows)}</strong></div>
+      <div><span>Missing Before</span><strong>${formatNumber(report.missing_values_before)}</strong></div>
+      <div><span>Missing After</span><strong>${formatNumber(report.missing_values_after)}</strong></div>
+      <div><span>Duplicates</span><strong>${formatNumber(report.duplicates_removed)}</strong></div>
+      <div><span>Outliers</span><strong>${formatNumber(report.outliers_handled)}</strong></div>
+      <div><span>Target</span><strong>${escapeHtml(summary.target_column || "None")}</strong></div>
+    </div>
+    ${renderCompactTable("Filled Missing Values", summary.missing_value_report.filled_columns, ["column", "missing_before", "strategy", "fill_value"])}
+    ${renderCompactTable("Outliers Handled", summary.outlier_report.columns, ["column", "outlier_count", "strategy", "lower_bound", "upper_bound"])}
+    ${renderCompactTable("Invalid Values", summary.invalid_value_report.invalid_values, ["column", "invalid_count", "rule", "strategy"])}
   `;
 }
 

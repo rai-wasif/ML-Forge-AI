@@ -2,7 +2,7 @@ from sqlalchemy import text
 
 from app.database.base import Base
 from app.database.session import engine
-from app.models import activity, dataset, eda_report, project  # noqa: F401
+from app.models import activity, cleaning_report, dataset, eda_report, project  # noqa: F401
 
 
 def init_db() -> None:

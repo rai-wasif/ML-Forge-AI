@@ -30,3 +30,7 @@ class Dataset(Base):
         back_populates="dataset",
         cascade="all, delete-orphan",
     )
+    cleaning_reports: Mapped[list["CleaningReport"]] = relationship(
+        back_populates="dataset",
+        cascade="all, delete-orphan",
+    )
