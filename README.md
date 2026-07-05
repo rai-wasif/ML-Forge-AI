@@ -97,6 +97,26 @@ http://127.0.0.1:8000/ui
 10. Click `Generate AI Report`.
 11. Ask the assistant: `Compare this experiment with the previous run.`
 
+## Screenshots And Demo Video
+
+Use [docs/SCREENSHOT_AND_VIDEO_GUIDE.md](docs/SCREENSHOT_AND_VIDEO_GUIDE.md) when you are ready to capture screenshots and record the demo video.
+
+Recommended screenshots:
+
+- Project dashboard
+- Dataset upload
+- EDA charts
+- Training metrics
+- SHAP explainability
+- Experiment tracking
+- MLflow UI
+- Knowledge Base and Qdrant UI
+- AI Assistant response
+
+## GitHub Publishing
+
+Use [docs/GITHUB_PUBLISHING.md](docs/GITHUB_PUBLISHING.md) after your screenshots and demo video are ready.
+
 ## Project Status
 
 All 10 planned milestones are implemented:

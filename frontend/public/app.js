@@ -142,8 +142,16 @@ function renderWorkspace() {
   if (!project) {
     workspace.innerHTML = `
       <div class="empty-state">
-        <h2>No project selected</h2>
-        <p>Create or open a project to begin.</p>
+        <div class="empty-orbit">ML</div>
+        <p class="eyebrow">Ready for a demo run</p>
+        <h2>Select a project or create a new one</h2>
+        <p>Projects, datasets, experiments, reports, and knowledge-base answers will appear here.</p>
+        <div class="kpi-grid">
+          <div class="kpi-card"><span>Projects</span><strong>${formatNumber(state.projects.length)}</strong></div>
+          <div class="kpi-card"><span>Datasets</span><strong>0</strong></div>
+          <div class="kpi-card"><span>Experiments</span><strong>0</strong></div>
+          <div class="kpi-card"><span>Stack</span><strong>Ready</strong></div>
+        </div>
       </div>
     `;
     return;
@@ -152,6 +160,7 @@ function renderWorkspace() {
   workspace.innerHTML = `
     <header class="workspace-header">
       <div>
+        <p class="eyebrow">Active Project</p>
         <h2>${escapeHtml(project.name)}</h2>
         <p>${escapeHtml(project.description || "No description")}</p>
       </div>
@@ -160,10 +169,18 @@ function renderWorkspace() {
         <button type="submit">Upload Dataset</button>
       </form>
     </header>
-    <section class="assistant-panel">
+    ${renderProjectDashboard()}
+    ${renderPipelineOverview()}
+    <section class="control-grid">
+    <section class="assistant-panel" id="assistant">
       <div>
         <h3>AI Assistant</h3>
-        <p>Ask the ML Engineer Crew to run the pipeline for this project.</p>
+        <p>Planner, ML specialists, experiment analyst, and research agent.</p>
+      </div>
+      <div class="prompt-row">
+        <button type="button" class="prompt-chip" data-prompt="Analyze my latest dataset and train the best model.">Analyze + train</button>
+        <button type="button" class="prompt-chip" data-prompt="Compare this experiment with the previous run.">Compare runs</button>
+        <button type="button" class="prompt-chip" data-prompt="Why did Logistic Regression perform best?">Explain model</button>
       </div>
       <form class="assistant-form" id="agentForm">
         <textarea id="agentPrompt" rows="3" placeholder="Analyze my uploaded Titanic dataset and train the best model."></textarea>
@@ -173,10 +190,10 @@ function renderWorkspace() {
         ${state.agentResponse ? renderAgentResponse(state.agentResponse) : ""}
       </div>
     </section>
-    <section class="knowledge-panel">
+    <section class="knowledge-panel" id="knowledge">
       <div>
         <h3>Knowledge Base</h3>
-        <p>Index ML notes, reports, PDFs, Markdown, text, HTML, or JSON into Qdrant.</p>
+        <p>Qdrant retrieval over ML notes, uploaded docs, and generated reports.</p>
       </div>
       <form class="knowledge-form" id="ragIndexForm">
         <input id="knowledgeFiles" name="files" type="file" accept=".pdf,.md,.txt,.html,.json" multiple />
@@ -193,7 +210,8 @@ function renderWorkspace() {
         ${state.knowledgeResponse ? renderKnowledgeResponse(state.knowledgeResponse) : ""}
       </div>
     </section>
-    <section class="experiment-panel">
+    </section>
+    <section class="experiment-panel" id="experiments">
       ${renderExperimentPanel()}
     </section>
     <div class="dataset-list" id="datasetList"></div>
@@ -205,6 +223,98 @@ function renderWorkspace() {
   document.querySelector("#ragIndexForm").addEventListener("submit", handleRagIndex);
   document.querySelector("#ragQueryForm").addEventListener("submit", handleRagQuery);
   document.querySelector("#compareExperiments").addEventListener("click", handleCompareExperiments);
+  document.querySelectorAll(".prompt-chip").forEach((button) => {
+    button.addEventListener("click", () => {
+      document.querySelector("#agentPrompt").value = button.dataset.prompt;
+    });
+  });
+}
+
+function renderProjectDashboard() {
+  const totalRows = state.datasets.reduce((sum, dataset) => sum + (dataset.row_count || 0), 0);
+  const latestTraining = Object.values(state.trainingReports)[0];
+  const bestMetric = latestTraining ? getBestMetricText(latestTraining) : "Pending";
+
+  return `
+    <section class="kpi-grid">
+      <div class="kpi-card">
+        <span>Datasets</span>
+        <strong>${formatNumber(state.datasets.length)}</strong>
+        <small>Uploaded to this project</small>
+      </div>
+      <div class="kpi-card">
+        <span>Rows Processed</span>
+        <strong>${formatNumber(totalRows)}</strong>
+        <small>Across project datasets</small>
+      </div>
+      <div class="kpi-card">
+        <span>Experiments</span>
+        <strong>${formatNumber(state.experiments.length)}</strong>
+        <small>Tracked in MLflow</small>
+      </div>
+      <div class="kpi-card accent-card">
+        <span>Best Result</span>
+        <strong>${escapeHtml(bestMetric)}</strong>
+        <small>${latestTraining ? escapeHtml(latestTraining.best_model) : "Train a model"}</small>
+      </div>
+    </section>
+  `;
+}
+
+function renderPipelineOverview() {
+  const dataset = state.datasets[0];
+  const stages = dataset ? pipelineStages(dataset) : pipelineStages(null);
+
+  return `
+    <section class="pipeline-card">
+      <div>
+        <p class="eyebrow">ML Workflow</p>
+        <h3>${dataset ? escapeHtml(dataset.name) : "No dataset uploaded"}</h3>
+      </div>
+      <div class="pipeline-strip">
+        ${stages.map((stage) => `
+          <div class="pipeline-step ${stage.status}">
+            <span>${escapeHtml(stage.index)}</span>
+            <strong>${escapeHtml(stage.label)}</strong>
+          </div>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderDatasetPipeline(dataset) {
+  const stages = pipelineStages(dataset);
+  return `
+    <div class="dataset-pipeline">
+      ${stages.map((stage) => `<span class="stage-pill ${stage.status}">${escapeHtml(stage.label)}</span>`).join("")}
+    </div>
+  `;
+}
+
+function pipelineStages(dataset) {
+  const datasetId = dataset ? dataset.id : null;
+  const training = datasetId ? state.trainingReports[datasetId] : null;
+  const shap = training ? (training.artifacts || {}).shap || {} : {};
+
+  return [
+    { index: "01", label: "Upload", status: dataset ? "complete" : "pending" },
+    { index: "02", label: "EDA", status: datasetId && state.edaReports[datasetId] ? "complete" : "pending" },
+    { index: "03", label: "Cleaning", status: datasetId && state.cleaningReports[datasetId] ? "complete" : "pending" },
+    { index: "04", label: "Features", status: datasetId && state.featureReports[datasetId] ? "complete" : "pending" },
+    { index: "05", label: "Training", status: training ? "complete" : "pending" },
+    { index: "06", label: "SHAP", status: shap.status === "completed" ? "complete" : "pending" },
+    { index: "07", label: "AI Report", status: training && training.final_report_path ? "complete" : "pending" },
+  ];
+}
+
+function getBestMetricText(report) {
+  const metrics = report.metrics.best || {};
+  const key = report.problem_type === "classification"
+    ? (metrics.roc_auc !== undefined ? "roc_auc" : "accuracy")
+    : (metrics.r2 !== undefined ? "r2" : "rmse");
+  const value = metrics[key];
+  return value === undefined ? "Ready" : `${formatLabel(key)} ${formatCell(value)}`;
 }
 
 function renderDatasets() {
@@ -231,6 +341,7 @@ function renderDatasets() {
     node.querySelector('[data-field="duplicates"]').textContent = formatNumber(dataset.duplicate_rows);
     node.querySelector('[data-field="size"]').textContent = formatBytes(dataset.file_size_bytes);
     node.querySelector('[data-field="memory"]').textContent = formatBytes(dataset.memory_usage_bytes);
+    node.querySelector(".metrics").insertAdjacentHTML("afterend", renderDatasetPipeline(dataset));
     const report = state.edaReports[dataset.id];
     const reportNode = node.querySelector(".eda-report");
     if (report) {
@@ -706,8 +817,9 @@ function renderFeatureReport(report) {
 function renderTrainingReport(report) {
   const metrics = report.metrics.best || {};
   const comparison = report.metrics.comparison || [];
-  const shap = report.artifacts.shap || {};
-  const mlflow = report.artifacts.mlflow || {};
+  const artifacts = report.artifacts || {};
+  const shap = artifacts.shap || {};
+  const mlflow = artifacts.mlflow || {};
   const finalReportUrl = report.final_report_path ? `/training/reports/${report.id}/final-report/download` : "";
 
   return `
