@@ -369,7 +369,7 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 ## 👨‍💻 Author
 
 **Wasif Bhatti**
-- **GitHub**: [rai-wasif](https://github.com/rai-wasif)
-- **LinkedIn**: [Wasif Bhatti](https://www.linkedin.com/in/wasif-bhatti)
+- **GitHub**: [Muhammad Wasif](https://github.com/rai-wasif)
+- **LinkedIn**: [Muhammad Wasif](https://www.linkedin.com/in/rai-wasif)
 
 *If you find this project useful, please consider giving it a ⭐ on GitHub!*
