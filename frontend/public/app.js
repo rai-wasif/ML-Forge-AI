@@ -279,6 +279,15 @@ function renderHomeView() {
         <h2>Welcome to MLForge AI</h2>
         <p>Build, train, and explain machine learning models in 7 simple steps.</p>
       </div>
+      <div class="home-steps" aria-label="Pipeline overview">
+        ${STEPS.map((s) => `
+          <div class="home-step-item">
+            <span class="home-step-num">${s.num}</span>
+            <strong>${s.label}</strong>
+            <small>${s.title}</small>
+          </div>
+        `).join("")}
+      </div>
       <div class="home-grid">
         <section class="step-panel">
           <div class="step-panel-header">
@@ -345,8 +354,16 @@ function renderPipelineView() {
   }
 
   const step = STEPS[state.currentStep - 1];
+  const p = state.selectedProject;
   return `
     <div class="view-container">
+      <div class="project-context">
+        <div>
+          <span class="eyebrow">Active Project</span>
+          <strong>${escapeHtml(p.name)}</strong>
+        </div>
+        <button type="button" class="btn-secondary" data-goto="home">Switch Project</button>
+      </div>
       ${renderStepper()}
       <div class="wizard-content">
         <div class="step-panel">
@@ -471,7 +488,7 @@ function renderStep3() {
       </div>
     `;
   }
-  return renderEdaReport(report, false);
+  return `${renderDatasetSelector()}${renderEdaReport(report, false)}`;
 }
 
 function renderStep4() {
@@ -480,6 +497,7 @@ function renderStep4() {
   const report = state.cleaningReports[dataset.id];
   if (!report) {
     return `
+      ${renderDatasetSelector()}
       <div class="action-card">
         <h3>Ready to Clean</h3>
         <p>Automatically fix missing values, remove duplicates, handle outliers, and validate data types.</p>
