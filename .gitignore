@@ -21,3 +21,4 @@ frontend/dist/
 frontend/build/
 backend/app/storage/*
 !backend/app/storage/.gitkeep
+backend/app/rag/knowledge_base/uploads/*
